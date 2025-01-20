@@ -1,5 +1,4 @@
 # telegram_bot_inventory/main.py
-import asyncio
 import logging
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler
 from config.config import Config
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 PRODUCT, ACTION = range(2)
 SIZE, COLOR, QUANTITY, TAG, CONFIRM = range(2, 7)
 
-async def main():
+def main():
     # Initialize database
     init_db()
     
@@ -61,8 +60,9 @@ async def main():
     )
     application.add_handler(conv_handler)
     
-    # Start bot
-    await application.run_polling()
+    # Start the Bot
+    logger.info("Bot is running...")
+    application.run_polling()
 
-if __name__ == '__main__':
-    asyncio.run(main())
+if __name__ == "__main__":
+    main()
