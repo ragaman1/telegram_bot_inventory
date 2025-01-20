@@ -1,35 +1,11 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+# bot.py
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 import config
+from commands import start, button_click, handle_message
+from database import initialize_database
 
-# Start Command - Display Inline Buttons
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📦 Add Product", callback_data='add_product')],
-        [InlineKeyboardButton("📊 Check Inventory", callback_data='check_inventory')],
-        [InlineKeyboardButton("⚙️ Update Stock", callback_data='update_stock')]
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Welcome to Inventory Manager Bot! 👋\n\nChoose an option below:",
-        reply_markup=reply_markup
-    )
-
-# Callback Handler for Inline Button Press
-async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == 'add_product':
-        await query.edit_message_text("🔧 You selected 'Add Product'.")
-        # Future: Trigger add_product function here
-    elif query.data == 'check_inventory':
-        await query.edit_message_text("📊 Checking Inventory...")
-        # Future: Trigger inventory display
-    elif query.data == 'update_stock':
-        await query.edit_message_text("⚙️ Update Stock selected.")
-        # Future: Trigger update_stock flow
+# Initialize the database
+initialize_database()
 
 # Main Function - Register Handlers
 def main():
@@ -40,6 +16,9 @@ def main():
 
     # Callback Query Handler
     app.add_handler(CallbackQueryHandler(button_click))
+
+    # Message Handler for User Input
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot running... 🚀")
     app.run_polling()
