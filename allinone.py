@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
     SELECTING_SIZE,
     SELECTING_COLOR,
     SELECTING_QUANTITY,
+    SELECTING_PLACE,  # New state
     CONFIRMING_ACTION
-) = range(7)
+) = range(8)
 
 # Keyboard layouts
 product_keyboard = [
@@ -54,10 +55,38 @@ quantity_keyboard = [
     ["Home", "Back"]
 ]
 
+place_keyboard = [
+    ["Place 1", "Place 2"],
+    ["Home", "Back"]
+]
+
 confirmation_keyboard = [
     ["OK", "Cancel"],
     ["Home", "Back"]
 ]
+
+
+def initialize_database():
+    conn = sqlite3.connect('inventory.db')
+    cursor = conn.cursor()
+
+    # Create the inventory table if it doesn't exist
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product TEXT NOT NULL,
+            size TEXT NOT NULL,
+            color TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            place TEXT NOT NULL,  -- New column
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    conn.commit()
+    conn.close()
+
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the conversation and ask user to choose product."""
@@ -131,7 +160,8 @@ async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         stock, last_updated = get_stock(
             context.user_data['product'],
             context.user_data['size'],
-            context.user_data['color']
+            context.user_data['color'],
+            context.user_data['place']
         )
         await update.message.reply_text(
             f"Current stock: {stock} units\n"
@@ -153,10 +183,22 @@ async def quantity_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data['quantity'] = int(text)
     
     await update.message.reply_text(
-        f"You want to {context.user_data['operation']} {text} units of:\n"
+        "Select the place:",
+        reply_markup=ReplyKeyboardMarkup(place_keyboard, one_time_keyboard=True)
+    )
+    return SELECTING_PLACE
+
+async def place_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle place selection."""
+    text = update.message.text
+    context.user_data['place'] = text
+    
+    await update.message.reply_text(
+        f"You want to {context.user_data['operation']} {context.user_data['quantity']} units of:\n"
         f"Product: {context.user_data['product']}\n"
         f"Size: {context.user_data['size']}\n"
         f"Color: {context.user_data['color']}\n"
+        f"Place: {context.user_data['place']}\n"
         "Is this correct?",
         reply_markup=ReplyKeyboardMarkup(confirmation_keyboard, one_time_keyboard=True)
     )
@@ -174,17 +216,20 @@ async def confirm_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 context.user_data['size'],
                 context.user_data['color'],
                 context.user_data['quantity'],
+                context.user_data['place'],  # Include place
                 context.user_data['operation']
             )
             # Fetch the updated stock and last_updated timestamp
             stock, last_updated = get_stock(
                 context.user_data['product'],
                 context.user_data['size'],
-                context.user_data['color']
+                context.user_data['color'],
+                context.user_data['place']  # Include place
             )
             await update.message.reply_text(
                 f"Inventory updated successfully!\n"
                 f"New stock: {stock} units\n"
+                f"Place: {context.user_data['place']}\n"
                 f"Last Updated: {last_updated}",
                 reply_markup=ReplyKeyboardMarkup(product_keyboard, one_time_keyboard=True)
             )
@@ -236,7 +281,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 # Database functions (you need to implement these)
-def get_stock(product, size, color):
+def get_stock(product, size, color, place):
     """Fetch stock and last updated timestamp from database."""
     conn = sqlite3.connect('inventory.db')
     cursor = conn.cursor()
@@ -244,8 +289,8 @@ def get_stock(product, size, color):
     # Query the database for the stock and last_updated timestamp
     cursor.execute('''
     SELECT quantity, last_updated FROM inventory
-    WHERE product = ? AND size = ? AND color = ?
-    ''', (product, size, color))
+    WHERE product = ? AND size = ? AND color = ? AND place = ?
+    ''', (product, size, color, place))
     
     result = cursor.fetchone()
     conn.close()
@@ -253,14 +298,13 @@ def get_stock(product, size, color):
     # Return (quantity, last_updated) if found, otherwise (0, None)
     return result if result else (0, None)
 
-
-def update_inventory(product, size, color, quantity, operation):
+def update_inventory(product, size, color, quantity, place, operation):
     """Update inventory and last_updated timestamp in database."""
     conn = sqlite3.connect('inventory.db')
     cursor = conn.cursor()
     
     # Fetch current stock
-    current_stock, _ = get_stock(product, size, color)
+    current_stock, _ = get_stock(product, size, color, place)
     
     if operation == "Add":
         new_stock = current_stock + quantity
@@ -269,9 +313,9 @@ def update_inventory(product, size, color, quantity, operation):
     
     # Update or insert the new stock value and last_updated timestamp
     cursor.execute('''
-    INSERT OR REPLACE INTO inventory (product, size, color, quantity, last_updated)
-    VALUES (?, ?, ?, ?, ?)
-    ''', (product, size, color, new_stock, datetime.now()))
+    INSERT OR REPLACE INTO inventory (product, size, color, quantity, place, last_updated)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ''', (product, size, color, new_stock, place, datetime.now()))
     
     conn.commit()
     conn.close()
@@ -332,6 +376,14 @@ def main() -> None:
                 MessageHandler(filters.Regex("^Back$"), back_handler),
                 MessageHandler(filters.Regex("^Home$"), back_to_start)
             ],
+            SELECTING_PLACE: [  # New state
+                MessageHandler(
+                    filters.Regex("^(Place 1|Place 2)$"), 
+                    place_choice
+                ),
+                MessageHandler(filters.Regex("^Back$"), back_handler),
+                MessageHandler(filters.Regex("^Home$"), back_to_start)
+            ],
             CONFIRMING_ACTION: [
                 MessageHandler(
                     filters.Regex("^(OK|Cancel)$"), 
@@ -368,4 +420,11 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
 
 if __name__ == '__main__':
+    initialize_database()
     main()
+
+#FIXME: 
+'''
+2025-01-22 08:02:50,896 - __main__ - WARNING - Update "Update(message=Message(channel_chat_created=False, chat=Chat(first_name='Amir', id=2007423925, type=<ChatType.PRIVATE>, username='ragaman1'),
+ date=datetime.datetime(2025, 1, 22, 13, 2, 50, tzinfo=datetime.timezone.utc), delete_chat_photo=False, from_user=User(first_name='Amir', id=2007423925, is_bot=False, language_code='en',
+   username='ragaman1'), group_chat_created=False, message_id=1271, supergroup_chat_created=False, text='Color 4'), update_id=91167737)" caused error "'place'"'''

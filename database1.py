@@ -11,10 +11,11 @@ def initialize_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
+            product TEXT NOT NULL,
             size TEXT NOT NULL,
             color TEXT NOT NULL,
             quantity INTEGER NOT NULL,
+            place TEXT NOT NULL,  -- New column
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -23,15 +24,15 @@ def initialize_database():
     conn.close()
 
 # Add a product to the database
-def add_product(name, size, color, quantity):
+def add_product(product, size, color, quantity):
     conn = sqlite3.connect('inventory.db')
     cursor = conn.cursor()
 
     # Insert the product into the database
     cursor.execute('''
-        INSERT INTO inventory (name, size, color, quantity, last_updated)
+        INSERT INTO inventory (product, size, color, quantity, last_updated)
         VALUES (?, ?, ?, ?, ?)
-    ''', (name, size, color, quantity, datetime.now()))
+    ''', (product, size, color, quantity, datetime.now()))
 
     conn.commit()
     conn.close()
@@ -72,7 +73,7 @@ def get_stock(product, size, color):
     # Query the database for the stock and last_updated timestamp
     cursor.execute('''
     SELECT quantity, last_updated FROM inventory
-    WHERE name = ? AND size = ? AND color = ?
+    WHERE product = ? AND size = ? AND color = ?
     ''', (product, size, color))
     
     result = cursor.fetchone()
@@ -97,7 +98,7 @@ def update_inventory(product, size, color, quantity, operation):
     
     # Update or insert the new stock value and last_updated timestamp
     cursor.execute('''
-    INSERT OR REPLACE INTO inventory (name, size, color, quantity, last_updated)
+    INSERT OR REPLACE INTO inventory (product, size, color, quantity, last_updated)
     VALUES (?, ?, ?, ?, ?)
     ''', (product, size, color, new_stock, datetime.now()))
     
