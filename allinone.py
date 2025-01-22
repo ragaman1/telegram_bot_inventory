@@ -1,7 +1,8 @@
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ConversationHandler
 import logging
+import sqlite3
 
 # Enable logging
 logging.basicConfig(
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
     CONFIRMING_ACTION
 ) = range(7)
 
-# Keyboard layouts (as defined before)
+# Keyboard layouts
 product_keyboard = [
     ["Product 1", "Product 2"],
 ]
@@ -31,7 +32,7 @@ action_keyboard = [
 ]
 
 inventory_keyboard = [
-    ["+", "-", "="],
+    ["Add", "Remove"],
     ["Home", "Back"]
 ]
 
@@ -56,6 +57,7 @@ confirmation_keyboard = [
     ["OK", "Cancel"],
     ["Home", "Back"]
 ]
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the conversation and ask user to choose product."""
     context.user_data.clear()
@@ -97,7 +99,7 @@ async def action_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return SELECTING_SIZE
 
 async def operation_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle operation selection (+/-/=)."""
+    """Handle operation selection (Add/Remove)."""
     text = update.message.text
     context.user_data['operation'] = text
     
@@ -132,8 +134,8 @@ async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         await update.message.reply_text(
             f"Current stock: {stock} units\n"
-            "Select 'Next' to check another item or 'Home' to start over",
-            reply_markup=ReplyKeyboardMarkup([["Next", "Home", "Back"]], one_time_keyboard=True)
+            "Select'Home' to start over",
+            reply_markup=ReplyKeyboardMarkup([["Home", "Back"]], one_time_keyboard=True)
         )
         return SELECTING_SIZE
     else:
@@ -226,13 +228,42 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # Database functions (you need to implement these)
 def get_stock(product, size, color):
     """Fetch stock from database."""
-    # Implement database query
-    return 0  # Placeholder
+    conn = sqlite3.connect('inventory.db')
+    cursor = conn.cursor()
+    
+    # Query the database for the stock of the given product, size, and color
+    cursor.execute('''
+    SELECT quantity FROM inventory
+    WHERE product = ? AND size = ? AND color = ?
+    ''', (product, size, color))
+    
+    result = cursor.fetchone()
+    conn.close()
+    
+    # Return 0 if no record is found, otherwise return the quantity
+    return result[0] if result else 0
 
 def update_inventory(product, size, color, quantity, operation):
     """Update inventory in database."""
-    # Implement database update
-    pass
+    conn = sqlite3.connect('inventory.db')
+    cursor = conn.cursor()
+    
+    # Fetch current stock
+    current_stock = get_stock(product, size, color)
+    
+    if operation == "Add":
+        new_stock = current_stock + quantity
+    elif operation == "Remove":
+        new_stock = max(0, current_stock - quantity)  # Ensure stock doesn't go below 0
+    
+    # Update or insert the new stock value
+    cursor.execute('''
+    INSERT OR REPLACE INTO inventory (product, size, color, quantity)
+    VALUES (?, ?, ?, ?)
+    ''', (product, size, color, new_stock))
+    
+    conn.commit()
+    conn.close()
 
 def main() -> None:
     """Run the bot."""
@@ -259,7 +290,7 @@ def main() -> None:
             ],
             SELECTING_OPERATION: [
                 MessageHandler(
-                    filters.Regex("^[+\\-=]$"), 
+                    filters.Regex("^(Add|Remove)$"), 
                     operation_choice
                 ),
                 MessageHandler(filters.Regex("^Back$"), back_handler),
