@@ -1,3 +1,4 @@
+from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
 from telegram.ext import Application, CommandHandler, ConversationHandler
@@ -126,15 +127,16 @@ async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data['color'] = text
     
     if context.user_data.get('action') == 'Stock':
-        # Fetch stock from database
-        stock = get_stock(
+        # Fetch stock and last_updated timestamp from database
+        stock, last_updated = get_stock(
             context.user_data['product'],
             context.user_data['size'],
             context.user_data['color']
         )
         await update.message.reply_text(
             f"Current stock: {stock} units\n"
-            "Select'Home' to start over",
+            f"Last Updated: {last_updated}\n"
+            "Select 'Home' to start over",
             reply_markup=ReplyKeyboardMarkup([["Home", "Back"]], one_time_keyboard=True)
         )
         return SELECTING_SIZE
@@ -174,8 +176,16 @@ async def confirm_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 context.user_data['quantity'],
                 context.user_data['operation']
             )
+            # Fetch the updated stock and last_updated timestamp
+            stock, last_updated = get_stock(
+                context.user_data['product'],
+                context.user_data['size'],
+                context.user_data['color']
+            )
             await update.message.reply_text(
-                "Inventory updated successfully!",
+                f"Inventory updated successfully!\n"
+                f"New stock: {stock} units\n"
+                f"Last Updated: {last_updated}",
                 reply_markup=ReplyKeyboardMarkup(product_keyboard, one_time_keyboard=True)
             )
         except Exception as e:
@@ -227,46 +237,48 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 # Database functions (you need to implement these)
 def get_stock(product, size, color):
-    """Fetch stock from database."""
+    """Fetch stock and last updated timestamp from database."""
     conn = sqlite3.connect('inventory.db')
     cursor = conn.cursor()
     
-    # Query the database for the stock of the given product, size, and color
+    # Query the database for the stock and last_updated timestamp
     cursor.execute('''
-    SELECT quantity FROM inventory
+    SELECT quantity, last_updated FROM inventory
     WHERE product = ? AND size = ? AND color = ?
     ''', (product, size, color))
     
     result = cursor.fetchone()
     conn.close()
     
-    # Return 0 if no record is found, otherwise return the quantity
-    return result[0] if result else 0
+    # Return (quantity, last_updated) if found, otherwise (0, None)
+    return result if result else (0, None)
+
 
 def update_inventory(product, size, color, quantity, operation):
-    """Update inventory in database."""
+    """Update inventory and last_updated timestamp in database."""
     conn = sqlite3.connect('inventory.db')
     cursor = conn.cursor()
     
     # Fetch current stock
-    current_stock = get_stock(product, size, color)
+    current_stock, _ = get_stock(product, size, color)
     
     if operation == "Add":
         new_stock = current_stock + quantity
     elif operation == "Remove":
         new_stock = max(0, current_stock - quantity)  # Ensure stock doesn't go below 0
     
-    # Update or insert the new stock value
+    # Update or insert the new stock value and last_updated timestamp
     cursor.execute('''
-    INSERT OR REPLACE INTO inventory (product, size, color, quantity)
-    VALUES (?, ?, ?, ?)
-    ''', (product, size, color, new_stock))
+    INSERT OR REPLACE INTO inventory (product, size, color, quantity, last_updated)
+    VALUES (?, ?, ?, ?, ?)
+    ''', (product, size, color, new_stock, datetime.now()))
     
     conn.commit()
     conn.close()
 
 def main() -> None:
     """Run the bot."""
+
     # Create the Application and pass it your bot's token.
     application = Application.builder().token("6977044112:AAHw8PfnzDPtBST1Zz8YhWRdpt4zi9fZqX0").build()
 
